@@ -228,7 +228,7 @@ const VIEWS=['tweek','cal','obi','inc'];
 let inlineDay=null;
 let items=[],db=null,view='tweek',calMode='week',area='all',sel=iso(todayD()),weekStart=mondayOf(todayD()),editing=null;
 let monthStart=new Date(todayD().getFullYear(),todayD().getMonth(),1);
-try{const v=localStorage.getItem('mp_view');if(VIEWS.includes(v))view=v;area=localStorage.getItem('mp_area')||area;const m=localStorage.getItem('mp_mode');if(m==='week'||m==='month')calMode=m}catch(e){}
+try{const v=localStorage.getItem('mp_view');if(VIEWS.includes(v))view=v;const m=localStorage.getItem('mp_mode');if(m==='week'||m==='month')calMode=m}catch(e){}
 const keep=()=>{try{localStorage.setItem('mp_view',view);localStorage.setItem('mp_area',area);localStorage.setItem('mp_mode',calMode)}catch(e){}};
 
 /* ---- salvataggio: database dell'artifact, con ripiego sul telefono ---- */
@@ -502,7 +502,7 @@ document.addEventListener('click',e=>{
   else if(act==='now'){goDate(iso(todayD()));render()}
   else if(act==='view'){view=b.dataset.v;keep();render();window.scrollTo(0,0)}
   else if(act==='mode'){calMode=b.dataset.v;goDate(sel);keep();render()}
-  else if(act==='area'){area=b.dataset.v;keep();render()}
+  else if(act==='area'){area=(area===b.dataset.v)?'all':b.dataset.v;keep();render()}
   else if(act==='selday'){sel=b.dataset.date;render()}
   else if(act==='slot'){
     const r=b.getBoundingClientRect(),y=e.clientY-r.top,mm=Math.floor((y/PH*60)/30)*30+(+b.dataset.hs)*60;

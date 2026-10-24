@@ -426,7 +426,7 @@ function render(){
   const open=items.filter(x=>x.type==='task'&&!x.done&&!x.date&&vis(x)).length;
   const head=`<header>${titleBlock(t)}
     <div class="chips" role="group" aria-label="Filtra per area">${[['all','Tutto'],['bim','BIM'],['sh','Shapeless'],['vita','Vita'],['altro','Altro']].map(([k,n])=>
-      `<button class="chip" data-act="area" data-v="${k}" aria-pressed="${area===k}">${k!=='all'?`<i class="dot ${k}"></i>`:''}${n}</button>`).join('')}</div></header>`;
+      `<button class="chip" data-act="area" data-v="${k}" aria-pressed="${area===k}">${k!=='all'?`<i class="dot ${k}"></i>`:''}${n}</button>`).join('')}</div>${area!=='all'?`<div class="sub" style="margin-top:6px">Stai vedendo solo ${AREAS[area]}. Tocca “Tutto” per vedere ogni area.</div>`:''}</header>`;
   const main=view==='tweek'?tweekView():view==='cal'?calView():view==='obi'?goalsView():backlogView();
   const app=document.getElementById('app');
   const cur=app.querySelector('.iadd'),curV=cur?cur.value:'';
@@ -479,6 +479,7 @@ function openSheet(it){
       const t=val('f-time'),en=val('f-end');
       o.time=o.date?t:'';o.end=(o.date&&t&&en&&mins(en)>mins(t))?en:'';
     }
+    if(area!=='all'&&o.area!==area){area='all';keep()}
     put(o);if(o.date)sel=o.date;closeSheet();render();
   });
   setTimeout(()=>{try{if(isNew)document.getElementById('f-title').focus()}catch(e){}},50);

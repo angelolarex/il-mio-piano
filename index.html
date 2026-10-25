@@ -250,7 +250,19 @@ const keep=()=>{try{localStorage.setItem('mp_view',view);localStorage.setItem('m
 /* ---- salvataggio: database dell'artifact, con ripiego sul telefono ---- */
 function loadLocal(){try{items=JSON.parse(localStorage.getItem('mp_items')||'[]')}catch(e){items=[]}render()}
 function saveLocal(){try{localStorage.setItem('mp_items',JSON.stringify(items))}catch(e){}}
+function mergeIn(arr){
+  let add=0,upd=0;
+  try{localStorage.setItem('mp_items_bak',JSON.stringify(items))}catch(e){}
+  (Array.isArray(arr)?arr:[]).forEach(x=>{
+    if(!x||!x.id||!x.title)return;
+    const i=items.findIndex(y=>y.id===x.id);
+    if(i<0){items.push(x);add++}
+    else if((x.upd||0)>(items[i].upd||0)){items[i]=x;upd++}
+  });
+  saveLocal();render();return {add,upd};
+}
 function put(it){
+  it.upd=Date.now();
   const {id,...data}=it;
   const i=items.findIndex(x=>x.id===id);
   if(i>=0)items[i]=it;else items.push(it);
@@ -483,7 +495,7 @@ function render(){
   const app=document.getElementById('app');
   const cur=app.querySelector('.iadd'),curV=cur?cur.value:'';
   app.className='wrap'+(view==='tweek'?' wide':'');
-  app.innerHTML=head+main+`<div class="hint">Si salva da solo su questo dispositivo.<br><button class="mini" data-act="export">Scarica copia</button> <button class="mini" data-act="import">Carica copia</button><input type="file" id="imp" accept="application/json" hidden></div>`;
+  app.innerHTML=head+main+`<div class="hint">Si salva da solo su questo dispositivo.<br>Per portare le cose su un altro dispositivo (es. dal telefono al tablet):<br><button class="mini" data-act="copy">Copia i miei dati</button> <button class="mini" data-act="paste">Incolla dati</button><br><button class="mini" data-act="export">Scarica file</button> <button class="mini" data-act="import">Carica file</button><input type="file" id="imp" accept="application/json" hidden><div id="pastebox" hidden><textarea id="pastein" rows="4" placeholder="Incolla qui i dati copiati dall'altro dispositivo" style="width:100%;margin-top:8px;font:13px Figtree,sans-serif"></textarea><br><button class="mini" data-act="domerge">Unisci</button><p id="mergemsg"></p></div></div>`;
   if(inlineDay){const i=app.querySelector('.iadd');if(i){i.value=curV;i.focus()}}
   document.getElementById('nav').innerHTML=[['tweek','Settimana',''],['cal','Calendario',''],['rm','Roadmap',''],['obi','Obiettivi',''],['inc','Senza data',open?` <span class="cnt">${open}</span>`:'']].map(([k,n,c])=>
     `<button data-act="view" data-v="${k}" ${view===k?'aria-current="page"':''}>${n}${c}</button>`).join('');
@@ -580,7 +592,10 @@ document.addEventListener('click',e=>{
   else if(act==='settoday'&&it)put({...it,date:iso(todayD())});
   else if(act==='latetoday'){const k=iso(todayD());items.filter(x=>x.type==='task'&&x.date&&x.date<k&&!x.done&&vis(x)).forEach(x=>put({...x,date:k}))}
   else if(act==='export'){const bl=new Blob([JSON.stringify(items,null,1)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download='il-mio-piano-'+iso(todayD())+'.json';document.body.appendChild(a);a.click();a.remove()}
-  else if(act==='import'){const f=document.getElementById('imp');f.onchange=()=>{const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(Array.isArray(d)&&true){items=d.filter(x=>x&&x.id&&x.title);saveLocal();render()}}catch(e){}};r.readAsText(f.files[0])};f.click()}
+  else if(act==='import'){const f=document.getElementById('imp');f.onchange=()=>{const r=new FileReader();r.onload=()=>{try{const m=mergeIn(JSON.parse(r.result));alert('Fatto: '+m.add+' aggiunti, '+m.upd+' aggiornati.')}catch(e){alert('File non valido.')}};r.readAsText(f.files[0])};f.click()}
+  else if(act==='copy'){const t=JSON.stringify(items);(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>alert('Dati copiati ('+items.length+' voci). Incollali sull\'altro dispositivo con "Incolla dati" (ad es. mandandoli a te stesso su WhatsApp).')).catch(()=>{const bx=document.getElementById('pastebox');bx.hidden=false;const ta=document.getElementById('pastein');ta.value=t;ta.select()})}
+  else if(act==='paste'){const bx=document.getElementById('pastebox');bx.hidden=false;document.getElementById('pastein').value='';document.getElementById('pastein').focus()}
+  else if(act==='domerge'){const m=document.getElementById('mergemsg');try{const r=mergeIn(JSON.parse(document.getElementById('pastein').value.trim()));alert('Fatto: '+r.add+' aggiunti, '+r.upd+' aggiornati.')}catch(e){m.textContent='Dati non validi: copia di nuovo dall\'altro dispositivo.'}}
   else if(act==='close')closeSheet();
   else if(act==='del'&&editing&&editing.id){if(b.dataset.armed){remove(editing.id);closeSheet()}else{b.dataset.armed='1';b.textContent='Conferma: elimina'}}
 });

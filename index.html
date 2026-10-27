@@ -5,7 +5,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
-<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px)}body{margin:0}[hidden]{display:none!important}</style>
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px)}body{margin:0}[hidden]{display:none!important}.syncbar{display:flex;gap:10px;align-items:center;justify-content:space-between;margin:0 0 10px;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,#e8a33d 22%,var(--bg,#fff));font-size:13px;line-height:1.3}
+.syncbar.err{background:color-mix(in srgb,#d64545 20%,var(--bg,#fff))}
+.syncbar button{flex:none;height:36px;padding:0 14px;border:0;border-radius:10px;background:#1a73e8;color:#fff;font:600 13px Figtree,sans-serif}
+.sm{font-size:12px;opacity:.7}
+</style>
 <title>Il mio piano</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Figtree:wght@400;500;600&display=swap">
 <style>
@@ -259,26 +263,76 @@ function mergeIn(arr){
     if(i<0){items.push(x);add++}
     else if((x.upd||0)>(items[i].upd||0)){items[i]=x;upd++}
   });
-  saveLocal();render();return {add,upd};
+  saveLocal();render();if(col)pushAll(items).catch(()=>{});return {add,upd};
+}
+const FBCFG={apiKey:"AIzaSyCdYkRjaEFCwOr5rD71HvTq-_Uz8fzB_Pk",authDomain:"il-mio-piano.firebaseapp.com",projectId:"il-mio-piano",storageBucket:"il-mio-piano.firebasestorage.app",messagingSenderId:"815521056804",appId:"1:815521056804:web:36943f55002c667364f0b1"};
+let fbAuth=null,fbDb=null,cuser=null,col=null,unsub=null,sync='off',syncMsg='';
+/* sync: off (non disponibile), out (non collegato), on (sincronizzato), err */
+function loadScript(u){return new Promise((ok,ko)=>{const e=document.createElement('script');e.src=u;e.onload=ok;e.onerror=ko;document.head.appendChild(e)})}
+function pushAll(list){
+  if(!col||!list.length)return Promise.resolve();
+  const chunks=[];for(let i=0;i<list.length;i+=400)chunks.push(list.slice(i,i+400));
+  return Promise.all(chunks.map(c=>{const bt=fbDb.batch();c.forEach(x=>bt.set(col.doc(x.id),x));return bt.commit()}));
+}
+function startSync(){
+  stopSync();
+  col=fbDb.collection('users').doc(cuser.uid).collection('items');
+  let first=true;sync='on';syncMsg='';
+  unsub=col.onSnapshot(snap=>{
+    const remote=snap.docs.map(d=>({...d.data(),id:d.id}));
+    if(first){
+      first=false;
+      /* primo collegamento: unione, non si perde niente di quello che c'e' qui */
+      try{localStorage.setItem('mp_items_bak',JSON.stringify(items))}catch(e){}
+      const m=new Map(remote.map(x=>[x.id,x]));const up=[];
+      items.forEach(x=>{const r=m.get(x.id);if(!r||(x.upd||0)>(r.upd||0)){m.set(x.id,x);up.push(x)}});
+      items=[...m.values()];saveLocal();render();
+      pushAll(up).catch(e=>{sync='err';syncMsg='Caricamento non riuscito';render();console.warn(e)});
+    }else{items=remote;saveLocal();render()}
+  },e=>{sync='err';syncMsg='Sincronizzazione interrotta';render();console.warn(e)});
+}
+function stopSync(){if(unsub){unsub();unsub=null}col=null}
+function syncBar(){
+  if(sync==='out')return '<div class="syncbar"><span>Non sincronizzato: i dati restano solo su questo dispositivo.</span><button data-act="login">Accedi con Google</button></div>';
+  if(sync==='err')return '<div class="syncbar err"><span>'+(syncMsg||'Problema di sincronizzazione')+'</span><button data-act="login">Riprova</button></div>';
+  return '';
+}
+function syncLine(){
+  if(sync==='on'&&cuser)return 'Sincronizzato online · '+(cuser.email||'')+' <button class="mini" data-act="logout">Esci</button>';
+  if(sync==='off')return 'Si salva su questo dispositivo (sincronizzazione non disponibile: sei offline?).';
+  return 'Si salva su questo dispositivo.';
 }
 function put(it){
   it.upd=Date.now();
-  const {id,...data}=it;
-  const i=items.findIndex(x=>x.id===id);
+  const i=items.findIndex(x=>x.id===it.id);
   if(i>=0)items[i]=it;else items.push(it);
-  render();
-  if(db)db.doc('items/'+id).set(data).catch(e=>console.warn(e));else saveLocal();
+  saveLocal();render();
+  if(col)col.doc(it.id).set(it).catch(e=>console.warn(e));
 }
 function remove(id){
-  items=items.filter(x=>x.id!==id);render();
-  if(db)db.doc('items/'+id).delete().catch(e=>console.warn(e));else saveLocal();
+  items=items.filter(x=>x.id!==id);saveLocal();render();
+  if(col)col.doc(id).delete().catch(e=>console.warn(e));
+}
+function login(){
+  if(!fbAuth)return;
+  const pr=new firebase.auth.GoogleAuthProvider();
+  fbAuth.signInWithPopup(pr).catch(e=>{
+    if(e&&(e.code==='auth/popup-blocked'||e.code==='auth/operation-not-supported-in-this-environment'))fbAuth.signInWithRedirect(pr);
+    else if(e&&e.code!=='auth/popup-closed-by-user'&&e.code!=='auth/cancelled-popup-request'){sync='err';syncMsg='Accesso non riuscito ('+(e.code||'errore')+')';render()}
+  });
 }
 async function init(){
-  try{db=await (window.claude&&window.claude.use?window.claude.use('db'):null)}catch(e){db=null}
-  if(db){
-    db.collection('items').onSnapshot(s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));render()},
-      e=>{console.warn(e);db=null;loadLocal()});
-  }else loadLocal();
+  loadLocal();
+  try{
+    const B='https://www.gstatic.com/firebasejs/10.12.2/firebase-';
+    await loadScript(B+'app-compat.js');
+    await Promise.all([loadScript(B+'auth-compat.js'),loadScript(B+'firestore-compat.js')]);
+    firebase.initializeApp(FBCFG);
+    fbAuth=firebase.auth();fbDb=firebase.firestore();
+    sync='out';render();
+    fbAuth.getRedirectResult().catch(()=>{});
+    fbAuth.onAuthStateChanged(u=>{cuser=u;if(u)startSync();else{stopSync();sync='out'}render()});
+  }catch(e){sync='off';render()}
 }
 
 /* ---- dati filtrati ---- */
@@ -495,7 +549,7 @@ function render(){
   const app=document.getElementById('app');
   const cur=app.querySelector('.iadd'),curV=cur?cur.value:'';
   app.className='wrap'+(view==='tweek'?' wide':'');
-  app.innerHTML=head+main+`<div class="hint">Si salva da solo su questo dispositivo.<br>Per portare le cose su un altro dispositivo (es. dal telefono al tablet):<br><button class="mini" data-act="copy">Copia i miei dati</button> <button class="mini" data-act="paste">Incolla dati</button><br><button class="mini" data-act="export">Scarica file</button> <button class="mini" data-act="import">Carica file</button><input type="file" id="imp" accept="application/json" hidden><div id="pastebox" hidden><textarea id="pastein" rows="4" placeholder="Incolla qui i dati copiati dall'altro dispositivo" style="width:100%;margin-top:8px;font:13px Figtree,sans-serif"></textarea><br><button class="mini" data-act="domerge">Unisci</button><p id="mergemsg"></p></div></div>`;
+  app.innerHTML=syncBar()+head+main+`<div class="hint">${syncLine()}<br><span class="sm">Copia di sicurezza manuale:</span><br><button class="mini" data-act="copy">Copia i miei dati</button> <button class="mini" data-act="paste">Incolla dati</button><br><button class="mini" data-act="export">Scarica file</button> <button class="mini" data-act="import">Carica file</button><input type="file" id="imp" accept="application/json" hidden><div id="pastebox" hidden><textarea id="pastein" rows="4" placeholder="Incolla qui i dati copiati dall'altro dispositivo" style="width:100%;margin-top:8px;font:13px Figtree,sans-serif"></textarea><br><button class="mini" data-act="domerge">Unisci</button><p id="mergemsg"></p></div></div>`;
   if(inlineDay){const i=app.querySelector('.iadd');if(i){i.value=curV;i.focus()}}
   document.getElementById('nav').innerHTML=[['tweek','Settimana',''],['cal','Calendario',''],['rm','Roadmap',''],['obi','Obiettivi',''],['inc','Senza data',open?` <span class="cnt">${open}</span>`:'']].map(([k,n,c])=>
     `<button data-act="view" data-v="${k}" ${view===k?'aria-current="page"':''}>${n}${c}</button>`).join('');
@@ -593,6 +647,8 @@ document.addEventListener('click',e=>{
   else if(act==='latetoday'){const k=iso(todayD());items.filter(x=>x.type==='task'&&x.date&&x.date<k&&!x.done&&vis(x)).forEach(x=>put({...x,date:k}))}
   else if(act==='export'){const bl=new Blob([JSON.stringify(items,null,1)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download='il-mio-piano-'+iso(todayD())+'.json';document.body.appendChild(a);a.click();a.remove()}
   else if(act==='import'){const f=document.getElementById('imp');f.onchange=()=>{const r=new FileReader();r.onload=()=>{try{const m=mergeIn(JSON.parse(r.result));alert('Fatto: '+m.add+' aggiunti, '+m.upd+' aggiornati.')}catch(e){alert('File non valido.')}};r.readAsText(f.files[0])};f.click()}
+  else if(act==='login')login();
+  else if(act==='logout'){if(fbAuth)fbAuth.signOut()}
   else if(act==='copy'){const t=JSON.stringify(items);(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>alert('Dati copiati ('+items.length+' voci). Incollali sull\'altro dispositivo con "Incolla dati" (ad es. mandandoli a te stesso su WhatsApp).')).catch(()=>{const bx=document.getElementById('pastebox');bx.hidden=false;const ta=document.getElementById('pastein');ta.value=t;ta.select()})}
   else if(act==='paste'){const bx=document.getElementById('pastebox');bx.hidden=false;document.getElementById('pastein').value='';document.getElementById('pastein').focus()}
   else if(act==='domerge'){const m=document.getElementById('mergemsg');try{const r=mergeIn(JSON.parse(document.getElementById('pastein').value.trim()));alert('Fatto: '+r.add+' aggiunti, '+r.upd+' aggiornati.')}catch(e){m.textContent='Dati non validi: copia di nuovo dall\'altro dispositivo.'}}
